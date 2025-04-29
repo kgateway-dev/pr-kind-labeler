@@ -30,7 +30,6 @@ func main() {
 			if err != nil {
 				return fmt.Errorf("failed to read event path: %w", err)
 			}
-
 			var prEvent github.PullRequestEvent
 			if err := json.Unmarshal(payload, &prEvent); err != nil {
 				return fmt.Errorf("failed to parse event JSON: %w", err)
@@ -41,11 +40,26 @@ func main() {
 			prNum := prEvent.GetNumber()
 			body := prEvent.GetPullRequest().GetBody()
 
-			// extract kinds
+			supportedKinds := map[string]bool{
+				"new_feature":     true,
+				"bug_fix":         true,
+				"breaking_change": true,
+			}
+
+			// extract kinds and verify all kinds are supported. if not, label do-not-merge and exit.
 			kindRE := regexp.MustCompile(`(?m)^/kind\s+([\w/-]+)`)
 			kinds := map[string]bool{}
 			for _, match := range kindRE.FindAllStringSubmatch(body, -1) {
 				kinds[match[1]] = true
+			}
+			for k := range kinds {
+				if supportedKinds[k] {
+					continue
+				}
+				if _, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"do-not-merge"}); err != nil {
+					return fmt.Errorf("failed to add do-not-merge label: %w", err)
+				}
+				return fmt.Errorf("invalid /kind %q detected, labeling do-not-merge", k)
 			}
 
 			// fetch current labels
@@ -81,9 +95,9 @@ func main() {
 				}
 			}
 
-			// enforce changelog for required kinds
 			changelogRE := regexp.MustCompile(`(?is)^###\s*Changelog:`)
-			// list of kinds that require a changelog section
+			// list of kinds that require a changelog section. if a PR is labeled with one of these, it
+			// must have a changelog section.
 			requiresChangelog := map[string]bool{
 				"new_feature":     true,
 				"bug_fix":         true,
@@ -93,9 +107,13 @@ func main() {
 				if !requiresChangelog[k] {
 					continue
 				}
-				if !changelogRE.MatchString(body) {
-					return fmt.Errorf("PR is labeled %q but missing a \"### Changelog:\" section", k)
+				if changelogRE.MatchString(body) {
+					continue
 				}
+				if _, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"do-not-merge"}); err != nil {
+					return fmt.Errorf("failed to add do-not-merge label: %w", err)
+				}
+				return fmt.Errorf("PR is labeled %q but missing a \"### Changelog:\" section", k)
 			}
 
 			return nil
