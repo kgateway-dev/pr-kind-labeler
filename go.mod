@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/google/go-github v17.0.0+incompatible
 	github.com/spf13/cobra v1.9.1
+	golang.org/x/oauth2 v0.29.0
 )
 
 require (
