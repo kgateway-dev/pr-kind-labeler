@@ -6,9 +6,8 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v68/github"
 	"github.com/spf13/cobra"
-	"golang.org/x/oauth2"
 )
 
 func main() {
@@ -24,9 +23,7 @@ func main() {
 			if token == "" {
 				return fmt.Errorf("input token is not set")
 			}
-			client := github.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{
-				AccessToken: token,
-			})))
+			client := github.NewClient(nil).WithAuthToken(token)
 
 			eventPath := os.Getenv("GITHUB_EVENT_PATH")
 			payload, err := os.ReadFile(eventPath)
