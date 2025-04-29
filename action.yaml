@@ -1,0 +1,11 @@
+name: "PR Kind Labeler"
+description: "Sync /kind commands in PR body to GitHub labels and enforce changelog notes"
+inputs:
+  github-token:
+    description: "GitHub token (usually ${{ secrets.GITHUB_TOKEN }})"
+    required: true
+runs:
+  using: "docker"
+  image: "Dockerfile"
+  args:
+    - ${{ inputs.github-token }}
