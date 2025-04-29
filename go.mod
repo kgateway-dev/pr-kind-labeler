@@ -1,4 +1,4 @@
-module github.com/timflannagan/pr-kind-labeler
+module github.com/solo-io/pr-kind-labeler
 
 go 1.24.0
 
