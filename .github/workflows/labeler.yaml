@@ -1,5 +1,13 @@
 name: labeler
-on: [ pull_request ]
+
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+
+permissions:
+  issues: write
+  contents: read
+
 jobs:
   labeler:
     runs-on: ubuntu-latest
