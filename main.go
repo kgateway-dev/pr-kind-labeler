@@ -27,7 +27,7 @@ func main() {
 				return fmt.Errorf("failed to parse event JSON: %w", err)
 			}
 
-			fmt.Println(prEvent.PullRequest.Body)
+			fmt.Println(prEvent.PullRequest.GetBody())
 			return nil
 		},
 	}
