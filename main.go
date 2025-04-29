@@ -18,8 +18,15 @@ func main() {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: os.Args[0]})
-			client := github.NewClient(oauth2.NewClient(ctx, ts))
+
+			// verify the token is set and create GH API client
+			token := os.Args[1]
+			if token == "" {
+				return fmt.Errorf("input token is not set")
+			}
+			client := github.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{
+				AccessToken: token,
+			})))
 
 			eventPath := os.Getenv("GITHUB_EVENT_PATH")
 			payload, err := os.ReadFile(eventPath)
