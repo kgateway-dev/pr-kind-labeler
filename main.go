@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/google/go-github/v68/github"
 	"github.com/spf13/cobra"
@@ -15,8 +16,8 @@ var (
 	commentRE = regexp.MustCompile(`(?s)<!--.*?-->`)
 	// kindRE captures /kind labels, case-insensitive.
 	kindRE = regexp.MustCompile(`(?i)/kind\s+([a-z0-9_/-]+)`)
-	// changelogSectionRE matches the first line after the '# Changelog' heading.
-	changelogSectionRE = regexp.MustCompile(`(?m)^#\s*Changelog\s*\n+([^\n]+)`)
+	// releaseNoteRE captures the first fenced code block with the word "release-note" in it.
+	releaseNoteRE = regexp.MustCompile("(?s)```release-note\\s*(.*?)\\s*```")
 )
 
 func main() {
@@ -112,25 +113,24 @@ func main() {
 				}
 			}
 
-			// list of kinds that require a changelog section. if a PR is labeled with one of these, it
-			// must have a changelog section.
-			requiresChangelog := map[string]bool{
-				"new_feature":     true,
-				"bug_fix":         true,
-				"breaking_change": true,
+			// Enforce release-note block has been filled out.
+			match := releaseNoteRE.FindStringSubmatch(sanitizedBody)
+			if len(match) < 2 || strings.TrimSpace(match[1]) == "" {
+				// Missing or empty => invalid
+				client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"release-note-invalid"})
+				return fmt.Errorf("missing or empty ```release-note``` block; please add your line or 'NONE'")
 			}
-			for k := range kinds {
-				if !requiresChangelog[k] {
-					continue
-				}
-				if changelogSectionRE.MatchString(sanitizedBody) {
-					continue
-				}
-				if _, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"do-not-merge"}); err != nil {
-					return fmt.Errorf("failed to add do-not-merge label: %w", err)
-				}
-				return fmt.Errorf("PR is labeled %q but missing a \"### Changelog:\" section", k)
+			// Handle the special case "NONE" scenario for changelog types that don't require release
+			// notes. Remove any stale labels.
+			entry := strings.TrimSpace(match[1])
+			if strings.EqualFold(entry, "NONE") {
+				client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "release-note-invalid")
+				client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "release-note-needed")
+				return nil
 			}
+			// Else, valid entry. Mark release-note-needed so changelog generation automation
+			// can query for this PR easily.
+			client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"release-note-needed"})
 
 			return nil
 		},
