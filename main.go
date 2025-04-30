@@ -103,7 +103,7 @@ func main() {
 				}
 			}
 
-			changelogRE := regexp.MustCompile(`(?im)^###\s*Changelog\b`)
+			changelogRE := regexp.MustCompile(`(?m)^#\s*Changelog\s*\n+([^\n]+)`)
 			// list of kinds that require a changelog section. if a PR is labeled with one of these, it
 			// must have a changelog section.
 			requiresChangelog := map[string]bool{
