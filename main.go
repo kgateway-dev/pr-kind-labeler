@@ -38,7 +38,10 @@ func main() {
 			owner := prEvent.GetRepo().GetOwner().GetLogin()
 			repo := prEvent.GetRepo().GetName()
 			prNum := prEvent.GetNumber()
+
+			// get the PR description body and remove all HTML comments to make it easier to parse
 			body := prEvent.GetPullRequest().GetBody()
+			sanitizedBody := regexp.MustCompile(`(?s)<!--.*?-->`).ReplaceAllString(body, "")
 
 			supportedKinds := map[string]bool{
 				"new_feature":     true,
@@ -49,7 +52,7 @@ func main() {
 			// extract kinds and verify all kinds are supported. if not, label do-not-merge and exit.
 			kindRE := regexp.MustCompile(`(?m)^/kind\s+([\w/-]+)`)
 			kinds := map[string]bool{}
-			for _, match := range kindRE.FindAllStringSubmatch(body, -1) {
+			for _, match := range kindRE.FindAllStringSubmatch(sanitizedBody, -1) {
 				kinds[match[1]] = true
 			}
 			for k := range kinds {
@@ -107,7 +110,7 @@ func main() {
 				if !requiresChangelog[k] {
 					continue
 				}
-				if changelogRE.MatchString(body) {
+				if changelogRE.MatchString(sanitizedBody) {
 					continue
 				}
 				if _, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"do-not-merge"}); err != nil {
