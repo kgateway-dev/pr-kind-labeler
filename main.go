@@ -44,9 +44,14 @@ func main() {
 			sanitizedBody := regexp.MustCompile(`(?s)<!--.*?-->`).ReplaceAllString(body, "")
 
 			supportedKinds := map[string]bool{
+				"design":          true,
+				"deprecation":     true,
 				"new_feature":     true,
 				"bug_fix":         true,
 				"breaking_change": true,
+				"documentation":   true,
+				"cleanup":         true,
+				"flake":           true,
 			}
 
 			// extract kinds and verify all kinds are supported. if not, label do-not-merge and exit.
