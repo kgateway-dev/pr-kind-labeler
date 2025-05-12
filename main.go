@@ -130,8 +130,9 @@ func main() {
 				client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "release-note-needed")
 				return nil
 			}
-			// Else, valid entry. Mark release-note-needed so changelog generation automation
+			// Else, valid entry. Remove invalid label and mark release-note-needed so changelog generation automation
 			// can query for this PR easily.
+			client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "release-note-invalid")
 			client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"release-note-needed"})
 
 			return nil
