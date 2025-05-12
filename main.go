@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	// commentRE strips HTML comments so example code isn’t parsed.
+	// commentRE strips HTML comments so example code isn't parsed.
 	commentRE = regexp.MustCompile(`(?s)<!--.*?-->`)
 	// kindRE captures /kind labels, case-insensitive.
 	kindRE = regexp.MustCompile(`(?i)/kind\s+([a-z0-9_/-]+)`)
@@ -92,19 +92,21 @@ func main() {
 
 			// add missing and remove stale labels
 			for k := range kinds {
-				if currentMap[k] {
+				kindLabel := "kind/" + k
+				if currentMap[kindLabel] {
 					continue
 				}
-				_, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{k})
+				_, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{kindLabel})
 				if err != nil {
-					return fmt.Errorf("failed to add label %q: %w", k, err)
+					return fmt.Errorf("failed to add label %q: %w", kindLabel, err)
 				}
 			}
 			for label := range currentMap {
-				if !kindRE.MatchString("/kind " + label) {
+				if !strings.HasPrefix(label, "kind/") {
 					continue
 				}
-				if kinds[label] {
+				kindType := strings.TrimPrefix(label, "kind/")
+				if kinds[kindType] {
 					continue
 				}
 				_, err := client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, label)
