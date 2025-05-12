@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	// commentRE strips HTML comments so example code isn’t parsed.
+	// commentRE strips HTML comments so example code isn't parsed.
 	commentRE = regexp.MustCompile(`(?s)<!--.*?-->`)
 	// kindRE captures /kind labels, case-insensitive.
 	kindRE = regexp.MustCompile(`(?i)/kind\s+([a-z0-9_/-]+)`)
@@ -128,8 +128,9 @@ func main() {
 				client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "release-note-needed")
 				return nil
 			}
-			// Else, valid entry. Mark release-note-needed so changelog generation automation
+			// Else, valid entry. Remove invalid label and mark release-note-needed so changelog generation automation
 			// can query for this PR easily.
+			client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "release-note-invalid")
 			client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"release-note-needed"})
 
 			return nil
