@@ -453,3 +453,99 @@ func TestProcessPR_EditedToValid(t *testing.T) {
 		t.Fatalf("Expected labels to be removed %v, got %v", expectedLabelsToRemove, actualLabelsRemoved)
 	}
 }
+
+func TestProcessPR_LabelMigrationTableDriven(t *testing.T) {
+	tt := []struct {
+		name                   string
+		prNum                  int
+		initialLabels          []*github.Label
+		prBody                 string
+		expectedLabelsToAdd    []string
+		expectedLabelsToRemove []string
+	}{
+		{
+			name:  "Deprecated_Bug_Fix_To_Fix",
+			prNum: 101,
+			initialLabels: []*github.Label{
+				{Name: github.Ptr("kind/bug_fix")},
+				{Name: github.Ptr("release-notes-needed")},
+			},
+			prBody:                 "/kind fix\\n```release-note\\nValid note\\n```",
+			expectedLabelsToAdd:    []string{"kind/fix", "release-note"},
+			expectedLabelsToRemove: []string{"kind/bug_fix", "release-notes-needed"},
+		},
+		{
+			name:  "Deprecated_Feature_To_New_Feature",
+			prNum: 106,
+			initialLabels: []*github.Label{
+				{Name: github.Ptr("kind/new_feature")},
+				{Name: github.Ptr("release-notes-needed")},
+			},
+			prBody:                 "/kind new_feature\\n```release-note\\nValid note\\n```",
+			expectedLabelsToAdd:    []string{"kind/feature", "release-note"},
+			expectedLabelsToRemove: []string{"kind/new_feature", "release-notes-needed"},
+		},
+	}
+
+	for _, tc := range tt {
+		tc := tc // capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var actualLabelsAdded []string = make([]string, 0)
+			var actualLabelsRemoved []string = make([]string, 0)
+
+			httpClient := mock.NewMockedHTTPClient(
+				mock.WithRequestMatch(
+					mock.GetReposIssuesLabelsByOwnerByRepoByIssueNumber,
+					tc.initialLabels,
+				),
+				mock.WithRequestMatchHandler(
+					mock.PostReposIssuesLabelsByOwnerByRepoByIssueNumber,
+					http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if err := json.NewDecoder(r.Body).Decode(&actualLabelsAdded); err != nil {
+							t.Fatalf("AddLabels Handler: failed to decode body: %v", err)
+						}
+						sort.Strings(actualLabelsAdded)
+						responseLabels := make([]*github.Label, len(actualLabelsAdded))
+						for i, name := range actualLabelsAdded {
+							responseLabels[i] = &github.Label{Name: github.Ptr(name)}
+						}
+						w.Header().Set("Content-Type", "application/json")
+						json.NewEncoder(w).Encode(responseLabels)
+					}),
+				),
+				mock.WithRequestMatchHandler(
+					mock.DeleteReposIssuesLabelsByOwnerByRepoByIssueNumberByName,
+					http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						pathPrefix := fmt.Sprintf("/repos/%s/%s/issues/%d/labels/", "owner", "repo", tc.prNum)
+						labelNameSegment := strings.TrimPrefix(r.URL.Path, pathPrefix)
+						decodedLabelName, err := url.PathUnescape(labelNameSegment)
+						if err != nil {
+							t.Fatalf("Failed to unescape label name segment '%s': %v", labelNameSegment, err)
+						}
+						actualLabelsRemoved = append(actualLabelsRemoved, decodedLabelName)
+						sort.Strings(actualLabelsRemoved)
+						w.WriteHeader(http.StatusNoContent)
+					}),
+				),
+			)
+
+			l := New(github.NewClient(httpClient), "owner", "repo", tc.prNum)
+			err := l.ProcessPR(context.Background(), tc.prBody)
+			if err != nil {
+				t.Fatalf("Expected no error, but got: %v", err)
+			}
+
+			sort.Strings(tc.expectedLabelsToAdd)
+			if !reflect.DeepEqual(actualLabelsAdded, tc.expectedLabelsToAdd) {
+				t.Errorf("Expected labels to add %v, got %v", tc.expectedLabelsToAdd, actualLabelsAdded)
+			}
+
+			sort.Strings(tc.expectedLabelsToRemove)
+			if !reflect.DeepEqual(actualLabelsRemoved, tc.expectedLabelsToRemove) {
+				t.Errorf("Expected labels to remove %v, got %v", tc.expectedLabelsToRemove, actualLabelsRemoved)
+			}
+		})
+	}
+}

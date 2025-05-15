@@ -14,8 +14,8 @@ import (
 var (
 	// commentRE strips HTML comments so example code isn't parsed.
 	commentRE = regexp.MustCompile(`(?s)<!--.*?-->`)
-	// kindRE captures /kind labels, case-insensitive.
-	kindRE = regexp.MustCompile(`(?i)/kind\s+([a-z0-9_/-]+)`)
+	// kindRE captures /kind labels, case-insensitive, matching start of line.
+	kindRE = regexp.MustCompile(`(?im)^/kind\s+([a-z0-9_/-]+)`)
 	// releaseNoteRE captures the first fenced code block with the word "release-note" in it.
 	releaseNoteRE = regexp.MustCompile("(?s)```release-note\\s*(.*?)\\s*```")
 	// supportedKinds is a map of supported kind labels.
@@ -28,6 +28,11 @@ var (
 		"documentation":   true,
 		"cleanup":         true,
 		"flake":           true,
+	}
+	// deprecatedKindMap maps old kind values to their new equivalents.
+	deprecatedKindMap = map[string]string{
+		"new_feature": "feature",
+		"bug_fix":     "fix",
 	}
 )
 
@@ -102,12 +107,18 @@ func (l *labeler) processKindLabels(body string) error {
 
 // extractKinds extracts all /kind commands from the PR body
 func (l *labeler) extractKinds(body string) map[string]bool {
-	kindRE := regexp.MustCompile(`(?m)^/kind\s+([\w/-]+)`)
-	kinds := map[string]bool{}
+	parsedKinds := map[string]bool{}
 	for _, match := range kindRE.FindAllStringSubmatch(body, -1) {
-		kinds[match[1]] = true
+		kind := strings.ToLower(match[1])
+		// temporary migration: if the kind is deprecated, use the new kind
+		newKind, ok := deprecatedKindMap[kind]
+		if ok {
+			parsedKinds[newKind] = true
+			continue
+		}
+		parsedKinds[kind] = true
 	}
-	return kinds
+	return parsedKinds
 }
 
 // verifyKinds checks if all extracted kinds are supported
@@ -142,11 +153,16 @@ func (l *labeler) syncKindLabels(kinds map[string]bool) error {
 		if !strings.HasPrefix(label, "kind/") {
 			continue
 		}
-		kindType := strings.TrimPrefix(label, "kind/")
-		if kinds[kindType] {
-			continue
+		currentKindType := strings.TrimPrefix(label, "kind/")
+		if newKindEquivalent, isDeprecated := deprecatedKindMap[currentKindType]; isDeprecated {
+			if kinds[newKindEquivalent] {
+				l.labelsToRemove[label] = true
+				continue
+			}
 		}
-		l.labelsToRemove[label] = true
+		if !kinds[currentKindType] {
+			l.labelsToRemove[label] = true
+		}
 	}
 
 	return nil
@@ -154,11 +170,18 @@ func (l *labeler) syncKindLabels(kinds map[string]bool) error {
 
 // processReleaseNotes handles the release note validation and labeling
 func (l *labeler) processReleaseNotes(body string) error {
-	// if the release note bracket is missing, add the invalid label and remove any
-	// stale release-note or release-note-none labels.
+	// temporary migration: if the deprecated release-notes-needed label exists, remove it
+	// and let the logic below add the correct label.
+	if l.currentMap["release-notes-needed"] {
+		l.labelsToRemove["release-notes-needed"] = true
+	}
+
+	// validate the release note block is present
 	match := releaseNoteRE.FindStringSubmatch(body)
 	if len(match) < 2 {
-		l.labelsToAdd["do-not-merge/release-note-invalid"] = true
+		if !l.currentMap["do-not-merge/release-note-invalid"] {
+			l.labelsToAdd["do-not-merge/release-note-invalid"] = true
+		}
 		if l.currentMap["release-note"] {
 			l.labelsToRemove["release-note"] = true
 		}
@@ -167,12 +190,14 @@ func (l *labeler) processReleaseNotes(body string) error {
 		}
 		return fmt.Errorf("missing or empty ```release-note``` block; please add your line or 'NONE'")
 	}
-	// otherwise, attempt to parse the release note.
+
+	// process the release note block
 	entry := strings.TrimSpace(match[1])
 	switch {
 	case entry == "":
-		// handle the empty case. set the invalid label and remove the release-note label.
-		l.labelsToAdd["do-not-merge/release-note-invalid"] = true
+		if !l.currentMap["do-not-merge/release-note-invalid"] {
+			l.labelsToAdd["do-not-merge/release-note-invalid"] = true
+		}
 		if l.currentMap["release-note"] {
 			l.labelsToRemove["release-note"] = true
 		}
@@ -181,8 +206,10 @@ func (l *labeler) processReleaseNotes(body string) error {
 		}
 		return fmt.Errorf("missing or empty ```release-note``` block; please add your line or 'NONE'")
 	case strings.EqualFold(entry, "NONE"):
-		// handle the NONE case. set the none label and remove the invalid label and release-note label.
-		l.labelsToAdd["release-note-none"] = true
+		// handle special NONE case
+		if !l.currentMap["release-note-none"] {
+			l.labelsToAdd["release-note-none"] = true
+		}
 		if l.currentMap["do-not-merge/release-note-invalid"] {
 			l.labelsToRemove["do-not-merge/release-note-invalid"] = true
 		}
@@ -190,9 +217,10 @@ func (l *labeler) processReleaseNotes(body string) error {
 			l.labelsToRemove["release-note"] = true
 		}
 	default:
-		// otherwise, a valid release note was found. set the release-note label and remove the invalid
-		// and none labels.
-		l.labelsToAdd["release-note"] = true
+		// validate release note was found
+		if !l.currentMap["release-note"] {
+			l.labelsToAdd["release-note"] = true
+		}
 		if l.currentMap["do-not-merge/release-note-invalid"] {
 			l.labelsToRemove["do-not-merge/release-note-invalid"] = true
 		}
