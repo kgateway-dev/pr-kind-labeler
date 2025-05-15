@@ -66,8 +66,9 @@ func main() {
 
 			// Map of old labels to new labels for migration
 			labelMigration := map[string]string{
-				"kind/new_feature": "kind/feature",
-				"kind/bug_fix":     "kind/fix",
+				"kind/new_feature":     "kind/feature",
+				"kind/bug_fix":         "kind/fix",
+				"release-notes-needed": "release-note",
 			}
 
 			// extract kinds and verify all kinds are supported. if not, label do-not-merge and exit.
@@ -78,6 +79,11 @@ func main() {
 			}
 			for k := range kinds {
 				if supportedKinds[k] {
+					continue
+				}
+				// temporary: handle migration from old to new labels. will be removed in the future.
+				if k == "new_feature" || k == "bug_fix" {
+					kinds[labelMigration[k]] = true
 					continue
 				}
 				if _, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"do-not-merge/kind-invalid"}); err != nil {
@@ -110,17 +116,18 @@ func main() {
 
 			// Temporary: handle label migration from old to new.
 			for oldLabel, newLabel := range labelMigration {
-				if currentMap[oldLabel] {
-					// Add new label
-					_, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{newLabel})
-					if err != nil {
-						return fmt.Errorf("failed to add migrated label %q: %w", newLabel, err)
-					}
-					// Remove old label
-					_, err = client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, oldLabel)
-					if err != nil {
-						return fmt.Errorf("failed to remove old label %q: %w", oldLabel, err)
-					}
+				if !currentMap[oldLabel] {
+					continue
+				}
+				// Add new label
+				_, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{newLabel})
+				if err != nil {
+					return fmt.Errorf("failed to add migrated label %q: %w", newLabel, err)
+				}
+				// Remove old label
+				_, err = client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, oldLabel)
+				if err != nil {
+					return fmt.Errorf("failed to remove old label %q: %w", oldLabel, err)
 				}
 			}
 
