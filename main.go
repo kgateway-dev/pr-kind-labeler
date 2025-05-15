@@ -56,8 +56,8 @@ func main() {
 			supportedKinds := map[string]bool{
 				"design":          true,
 				"deprecation":     true,
-				"new_feature":     true,
-				"bug_fix":         true,
+				"feature":         true,
+				"fix":             true,
 				"breaking_change": true,
 				"documentation":   true,
 				"cleanup":         true,
