@@ -2,8 +2,10 @@ package labeler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/google/go-github/v68/github"
@@ -31,42 +33,66 @@ var (
 
 // labeler handles PR labeling operations.
 type labeler struct {
-	client *github.Client
-	owner  string
-	repo   string
-	prNum  int
+	client         *github.Client
+	owner          string
+	repo           string
+	prNum          int
+	labelsToAdd    map[string]bool
+	labelsToRemove map[string]bool
+	currentMap     map[string]bool
 }
 
 // New creates a new Labeler instance.
 func New(client *github.Client, owner, repo string, prNum int) *labeler {
 	return &labeler{
-		client: client,
-		owner:  owner,
-		repo:   repo,
-		prNum:  prNum,
+		client:         client,
+		owner:          owner,
+		repo:           repo,
+		prNum:          prNum,
+		labelsToAdd:    map[string]bool{},
+		labelsToRemove: map[string]bool{},
+		currentMap:     map[string]bool{},
 	}
 }
 
 // ProcessPR processes the PR body and updates labels accordingly.
 func (l *labeler) ProcessPR(ctx context.Context, body string) error {
+	// fetch current labels
+	if err := l.fetchLabels(ctx); err != nil {
+		return err
+	}
 	// strip HTML comments to make the body easier to parse.
 	sanitizedBody := commentRE.ReplaceAllString(body, "")
-	if err := l.processKindLabels(ctx, sanitizedBody); err != nil {
+	if err := l.processKindLabels(sanitizedBody); err != nil {
 		return err
 	}
-	if err := l.processReleaseNotes(ctx, sanitizedBody); err != nil {
+	if err := l.processReleaseNotes(sanitizedBody); err != nil {
 		return err
 	}
+	return l.syncLabels(ctx)
+}
+
+// fetchLabels fetches the current labels for the PR
+func (l *labeler) fetchLabels(ctx context.Context) error {
+	current, _, err := l.client.Issues.ListLabelsByIssue(ctx, l.owner, l.repo, l.prNum, nil)
+	if err != nil {
+		return fmt.Errorf("failed to list labels: %w", err)
+	}
+	currentMap := map[string]bool{}
+	for _, L := range current {
+		currentMap[L.GetName()] = true
+	}
+	l.currentMap = currentMap
 	return nil
 }
 
 // processKindLabels handles the extraction and validation of kind labels
-func (l *labeler) processKindLabels(ctx context.Context, body string) error {
+func (l *labeler) processKindLabels(body string) error {
 	kinds := l.extractKinds(body)
-	if err := l.verifyKinds(ctx, kinds); err != nil {
+	if err := l.verifyKinds(kinds); err != nil {
 		return err
 	}
-	return l.syncKindLabels(ctx, kinds)
+	return l.syncKindLabels(kinds)
 }
 
 // extractKinds extracts all /kind commands from the PR body
@@ -80,45 +106,30 @@ func (l *labeler) extractKinds(body string) map[string]bool {
 }
 
 // verifyKinds checks if all extracted kinds are supported
-func (l *labeler) verifyKinds(ctx context.Context, kinds map[string]bool) error {
+func (l *labeler) verifyKinds(kinds map[string]bool) error {
 	for k := range kinds {
 		if supportedKinds[k] {
 			continue
 		}
-		if _, _, err := l.client.Issues.AddLabelsToIssue(ctx, l.owner, l.repo, l.prNum, []string{"do-not-merge/kind-invalid"}); err != nil {
-			return fmt.Errorf("failed to add do-not-merge label: %w", err)
-		}
-		return fmt.Errorf("invalid /kind %q detected, labeling do-not-merge", k)
+		l.labelsToAdd["do-not-merge/kind-invalid"] = true
+		return fmt.Errorf("invalid /kind %q detected, labeling do-not-merge/kind-invalid", k)
 	}
 	return nil
 }
 
 // syncKindLabels synchronizes the PR labels with the extracted kinds
-func (l *labeler) syncKindLabels(ctx context.Context, kinds map[string]bool) error {
-	// fetch current labels
-	current, _, err := l.client.Issues.ListLabelsByIssue(ctx, l.owner, l.repo, l.prNum, nil)
-	if err != nil {
-		return fmt.Errorf("failed to list labels: %w", err)
-	}
-	currentMap := map[string]bool{}
-	for _, L := range current {
-		currentMap[L.GetName()] = true
-	}
-
+func (l *labeler) syncKindLabels(kinds map[string]bool) error {
 	// add missing labels
 	for k := range kinds {
 		kindLabel := "kind/" + k
-		if currentMap[kindLabel] {
+		if l.currentMap[kindLabel] {
 			continue
 		}
-		_, _, err := l.client.Issues.AddLabelsToIssue(ctx, l.owner, l.repo, l.prNum, []string{kindLabel})
-		if err != nil {
-			return fmt.Errorf("failed to add label %q: %w", kindLabel, err)
-		}
+		l.labelsToAdd[kindLabel] = true
 	}
 
 	// remove stale labels
-	for label := range currentMap {
+	for label := range l.currentMap {
 		if !strings.HasPrefix(label, "kind/") {
 			continue
 		}
@@ -126,34 +137,63 @@ func (l *labeler) syncKindLabels(ctx context.Context, kinds map[string]bool) err
 		if kinds[kindType] {
 			continue
 		}
-		_, err := l.client.Issues.RemoveLabelForIssue(ctx, l.owner, l.repo, l.prNum, label)
-		if err != nil {
-			return fmt.Errorf("failed to remove label %q: %w", label, err)
-		}
+		l.labelsToRemove[label] = true
 	}
 
 	return nil
 }
 
 // processReleaseNotes handles the release note validation and labeling
-func (l *labeler) processReleaseNotes(ctx context.Context, body string) error {
+func (l *labeler) processReleaseNotes(body string) error {
 	match := releaseNoteRE.FindStringSubmatch(body)
 	if len(match) < 2 || strings.TrimSpace(match[1]) == "" {
-		// Missing or empty => invalid
-		l.client.Issues.AddLabelsToIssue(ctx, l.owner, l.repo, l.prNum, []string{"do-not-merge/release-note-invalid"})
+		l.labelsToAdd["do-not-merge/release-note-invalid"] = true
 		return fmt.Errorf("missing or empty ```release-note``` block; please add your line or 'NONE'")
 	}
 
 	// trim the release note entry and check if it's the special "NONE" entry.
 	entry := strings.TrimSpace(match[1])
 	if strings.EqualFold(entry, "NONE") {
-		l.client.Issues.AddLabelsToIssue(ctx, l.owner, l.repo, l.prNum, []string{"release-note-none"})
-		l.client.Issues.RemoveLabelForIssue(ctx, l.owner, l.repo, l.prNum, "do-not-merge/release-note-invalid")
+		l.labelsToAdd["release-note-none"] = true
+		if l.currentMap["do-not-merge/release-note-invalid"] {
+			l.labelsToRemove["do-not-merge/release-note-invalid"] = true
+		}
 		return nil
 	}
 
 	// Valid entry, add the release-note label and remove the invalid label if it exists.
-	l.client.Issues.AddLabelsToIssue(ctx, l.owner, l.repo, l.prNum, []string{"release-note"})
-	l.client.Issues.RemoveLabelForIssue(ctx, l.owner, l.repo, l.prNum, "do-not-merge/release-note-invalid")
+	l.labelsToAdd["release-note"] = true
+	if l.currentMap["do-not-merge/release-note-invalid"] {
+		l.labelsToRemove["do-not-merge/release-note-invalid"] = true
+	}
 	return nil
+}
+
+func (l *labeler) syncLabels(ctx context.Context) error {
+	var errs []error
+	labelsToAdd := make([]string, 0, len(l.labelsToAdd))
+	for k := range l.labelsToAdd {
+		labelsToAdd = append(labelsToAdd, k)
+	}
+	sort.Strings(labelsToAdd)
+
+	_, _, err := l.client.Issues.AddLabelsToIssue(ctx, l.owner, l.repo, l.prNum, labelsToAdd)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed to add labels %q: %w", labelsToAdd, err))
+	}
+
+	labelsToRemove := make([]string, 0, len(l.labelsToRemove))
+	for k := range l.labelsToRemove {
+		labelsToRemove = append(labelsToRemove, k)
+	}
+	sort.Strings(labelsToRemove)
+
+	for _, label := range labelsToRemove {
+		_, err = l.client.Issues.RemoveLabelForIssue(ctx, l.owner, l.repo, l.prNum, label)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove label %q: %w", label, err))
+		}
+	}
+
+	return errors.Join(errs...)
 }
