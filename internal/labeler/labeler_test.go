@@ -468,22 +468,22 @@ func TestProcessPR_LabelMigrationTableDriven(t *testing.T) {
 			prNum: 101,
 			initialLabels: []*github.Label{
 				{Name: github.Ptr("kind/bug_fix")},
-				{Name: github.Ptr("release-notes-needed")},
+				{Name: github.Ptr("release-note-needed")},
 			},
 			prBody:                 "/kind fix\\n```release-note\\nValid note\\n```",
 			expectedLabelsToAdd:    []string{"kind/fix", "release-note"},
-			expectedLabelsToRemove: []string{"kind/bug_fix", "release-notes-needed"},
+			expectedLabelsToRemove: []string{"kind/bug_fix", "release-note-needed"},
 		},
 		{
 			name:  "Deprecated_Feature_To_New_Feature",
 			prNum: 106,
 			initialLabels: []*github.Label{
 				{Name: github.Ptr("kind/new_feature")},
-				{Name: github.Ptr("release-notes-needed")},
+				{Name: github.Ptr("release-note-needed")},
 			},
 			prBody:                 "/kind new_feature\\n```release-note\\nValid note\\n```",
 			expectedLabelsToAdd:    []string{"kind/feature", "release-note"},
-			expectedLabelsToRemove: []string{"kind/new_feature", "release-notes-needed"},
+			expectedLabelsToRemove: []string{"kind/new_feature", "release-note-needed"},
 		},
 	}
 
