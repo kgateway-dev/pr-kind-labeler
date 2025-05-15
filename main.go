@@ -119,21 +119,21 @@ func main() {
 			match := releaseNoteRE.FindStringSubmatch(sanitizedBody)
 			if len(match) < 2 || strings.TrimSpace(match[1]) == "" {
 				// Missing or empty => invalid
-				client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"release-note-invalid"})
+				client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"do-not-merge/release-note-invalid"})
 				return fmt.Errorf("missing or empty ```release-note``` block; please add your line or 'NONE'")
 			}
 			// Handle the special case "NONE" scenario for changelog types that don't require release
 			// notes. Remove any stale labels.
 			entry := strings.TrimSpace(match[1])
 			if strings.EqualFold(entry, "NONE") {
-				client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "release-note-invalid")
-				client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "release-note-needed")
+				client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"release-note-none"})
+				client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "do-not-merge/release-note-invalid")
 				return nil
 			}
-			// Else, valid entry. Remove invalid label and mark release-note-needed so changelog generation automation
+			// Else, valid entry. Remove invalid label and mark release-note so changelog generation automation
 			// can query for this PR easily.
-			client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "release-note-invalid")
-			client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"release-note-needed"})
+			client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"release-note"})
+			client.Issues.RemoveLabelForIssue(ctx, owner, repo, prNum, "do-not-merge/release-note-invalid")
 
 			return nil
 		},
