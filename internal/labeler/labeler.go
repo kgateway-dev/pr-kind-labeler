@@ -63,13 +63,18 @@ func (l *labeler) ProcessPR(ctx context.Context, body string) error {
 	}
 	// strip HTML comments to make the body easier to parse.
 	sanitizedBody := commentRE.ReplaceAllString(body, "")
+
+	var errs []error
 	if err := l.processKindLabels(sanitizedBody); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 	if err := l.processReleaseNotes(sanitizedBody); err != nil {
-		return err
+		errs = append(errs, err)
 	}
-	return l.syncLabels(ctx)
+	if err := l.syncLabels(ctx); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 // fetchLabels fetches the current labels for the PR
