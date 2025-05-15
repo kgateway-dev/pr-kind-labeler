@@ -83,7 +83,8 @@ func main() {
 				}
 				// temporary: handle migration from old to new labels. will be removed in the future.
 				if k == "new_feature" || k == "bug_fix" {
-					kinds[labelMigration[k]] = true
+					oldLabel := "kind/" + k
+					kinds[labelMigration[oldLabel]] = true
 					continue
 				}
 				if _, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"do-not-merge/kind-invalid"}); err != nil {
