@@ -1,4 +1,4 @@
-module github.com/solo-io/pr-kind-labeler
+module github.com/kgateway-dev/pr-kind-labeler
 
 go 1.24.0
 
