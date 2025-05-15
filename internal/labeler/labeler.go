@@ -177,10 +177,10 @@ func (l *labeler) syncKindLabels(kinds map[string]bool) error {
 
 // processReleaseNotes handles the release note validation and labeling
 func (l *labeler) processReleaseNotes(body string) error {
-	// temporary migration: if the deprecated release-notes-needed label exists, remove it
+	// temporary migration: if the deprecated release-note-needed label exists, remove it
 	// and let the logic below add the correct label.
-	if l.currentMap["release-notes-needed"] {
-		l.labelsToRemove["release-notes-needed"] = true
+	if l.currentMap["release-note-needed"] {
+		l.labelsToRemove["release-note-needed"] = true
 	}
 
 	// validate the release note block is present
