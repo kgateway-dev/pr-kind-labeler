@@ -17,13 +17,13 @@ A concise explanation of the change. You may include:
 Select one or more of the following by including the corresponding slash-command:
 ```
 /kind breaking_change
-/kind bug_fix
-/kind design
 /kind cleanup
 /kind deprecation
+/kind design
 /kind documentation
 /kind flake
-/kind new_feature
+/kind feature
+/kind fix
 ```
 -->
 
