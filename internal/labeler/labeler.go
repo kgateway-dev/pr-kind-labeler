@@ -154,26 +154,51 @@ func (l *labeler) syncKindLabels(kinds map[string]bool) error {
 
 // processReleaseNotes handles the release note validation and labeling
 func (l *labeler) processReleaseNotes(body string) error {
+	// if the release note bracket is missing, add the invalid label and remove any
+	// stale release-note or release-note-none labels.
 	match := releaseNoteRE.FindStringSubmatch(body)
-	if len(match) < 2 || strings.TrimSpace(match[1]) == "" {
+	if len(match) < 2 {
 		l.labelsToAdd["do-not-merge/release-note-invalid"] = true
+		if l.currentMap["release-note"] {
+			l.labelsToRemove["release-note"] = true
+		}
+		if l.currentMap["release-note-none"] {
+			l.labelsToRemove["release-note-none"] = true
+		}
 		return fmt.Errorf("missing or empty ```release-note``` block; please add your line or 'NONE'")
 	}
-
-	// trim the release note entry and check if it's the special "NONE" entry.
+	// otherwise, attempt to parse the release note.
 	entry := strings.TrimSpace(match[1])
-	if strings.EqualFold(entry, "NONE") {
+	switch {
+	case entry == "":
+		// handle the empty case. set the invalid label and remove the release-note label.
+		l.labelsToAdd["do-not-merge/release-note-invalid"] = true
+		if l.currentMap["release-note"] {
+			l.labelsToRemove["release-note"] = true
+		}
+		if l.currentMap["release-note-none"] {
+			l.labelsToRemove["release-note-none"] = true
+		}
+		return fmt.Errorf("missing or empty ```release-note``` block; please add your line or 'NONE'")
+	case strings.EqualFold(entry, "NONE"):
+		// handle the NONE case. set the none label and remove the invalid label and release-note label.
 		l.labelsToAdd["release-note-none"] = true
 		if l.currentMap["do-not-merge/release-note-invalid"] {
 			l.labelsToRemove["do-not-merge/release-note-invalid"] = true
 		}
-		return nil
-	}
-
-	// Valid entry, add the release-note label and remove the invalid label if it exists.
-	l.labelsToAdd["release-note"] = true
-	if l.currentMap["do-not-merge/release-note-invalid"] {
-		l.labelsToRemove["do-not-merge/release-note-invalid"] = true
+		if l.currentMap["release-note"] {
+			l.labelsToRemove["release-note"] = true
+		}
+	default:
+		// otherwise, a valid release note was found. set the release-note label and remove the invalid
+		// and none labels.
+		l.labelsToAdd["release-note"] = true
+		if l.currentMap["do-not-merge/release-note-invalid"] {
+			l.labelsToRemove["do-not-merge/release-note-invalid"] = true
+		}
+		if l.currentMap["release-note-none"] {
+			l.labelsToRemove["release-note-none"] = true
+		}
 	}
 	return nil
 }
