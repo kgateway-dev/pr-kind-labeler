@@ -74,7 +74,7 @@ func main() {
 				if supportedKinds[k] {
 					continue
 				}
-				if _, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"do-not-merge"}); err != nil {
+				if _, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repo, prNum, []string{"do-not-merge/kind-invalid"}); err != nil {
 					return fmt.Errorf("failed to add do-not-merge label: %w", err)
 				}
 				return fmt.Errorf("invalid /kind %q detected, labeling do-not-merge", k)
