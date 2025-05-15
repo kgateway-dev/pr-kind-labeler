@@ -15,6 +15,24 @@ import (
 	"github.com/migueleliasweb/go-github-mock/src/mock"
 )
 
+func TestProcessPR_NoKindSupplied(t *testing.T) {
+	// note: no need to mock the labels, as the labeler will exit early if no
+	// kind is supplied and no labels are added.
+	httpClient := mock.NewMockedHTTPClient(
+		mock.WithRequestMatch(
+			mock.GetReposIssuesLabelsByOwnerByRepoByIssueNumber,
+			[]*github.Label{},
+		),
+	)
+
+	c := github.NewClient(httpClient)
+	l := New(c, "foo", "bar", 42)
+	err := l.ProcessPR(context.Background(), "```release-note\nOK\n```")
+	if err == nil || !strings.Contains(err.Error(), "no /kind") {
+		t.Fatalf("expected an error when no kind is supplied, got %v", err)
+	}
+}
+
 func TestProcessPR_InvalidKind(t *testing.T) {
 	// note: no need to mock the labels, as the labeler will exit early if the
 	// kind is invalid and no labels are added.

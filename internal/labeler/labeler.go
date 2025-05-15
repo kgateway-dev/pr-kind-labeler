@@ -107,6 +107,10 @@ func (l *labeler) extractKinds(body string) map[string]bool {
 
 // verifyKinds checks if all extracted kinds are supported
 func (l *labeler) verifyKinds(kinds map[string]bool) error {
+	if len(kinds) == 0 {
+		l.labelsToAdd["do-not-merge/kind-invalid"] = true
+		return fmt.Errorf("no /kind labels found, labeling do-not-merge/kind-invalid")
+	}
 	for k := range kinds {
 		if supportedKinds[k] {
 			continue
