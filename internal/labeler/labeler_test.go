@@ -57,7 +57,7 @@ func TestProcessPR_NoKindSupplied(t *testing.T) {
 
 	c := github.NewClient(httpClient)
 	l := New(c, "foo", "bar", 42)
-	err := l.ProcessPR(context.Background(), "```release-note\nOK\n```")
+	err := l.ProcessPR(context.Background(), "```release-note\nOK\n```", true)
 	if err == nil || !strings.Contains(err.Error(), "no /kind") {
 		t.Fatalf("expected an error when no kind is supplied, got %v", err)
 	}
@@ -110,7 +110,7 @@ func TestProcessPR_InvalidKind(t *testing.T) {
 	)
 	c := github.NewClient(httpClient)
 	l := New(c, "foo", "bar", 42)
-	err := l.ProcessPR(context.Background(), "/kind banana\n```release-note\nOK\n```")
+	err := l.ProcessPR(context.Background(), "/kind banana\n```release-note\nOK\n```", true)
 	if err == nil || !strings.Contains(err.Error(), "invalid /kind") {
 		t.Fatalf("expected kind-invalid error, got %v", err)
 	}
@@ -163,7 +163,7 @@ func TestProcessPR_ValidKind_InvalidReleaseNote(t *testing.T) {
 		),
 	)
 	l := New(github.NewClient(httpClient), "foo", "bar", 45)
-	err := l.ProcessPR(context.Background(), "/kind fix\n```release-note\n\n```")
+	err := l.ProcessPR(context.Background(), "/kind fix\n```release-note\n\n```", true)
 	if err == nil || !strings.Contains(err.Error(), "missing or empty") {
 		t.Fatalf("expected missing release-note error, got %v", err)
 	}
@@ -216,7 +216,7 @@ func TestProcessPR_ValidKindAndReleaseNote(t *testing.T) {
 		),
 	)
 	l := New(github.NewClient(httpClient), "foo", "bar", 43)
-	err := l.ProcessPR(context.Background(), "/kind feature\n```release-note\nNew feature implemented\n```")
+	err := l.ProcessPR(context.Background(), "/kind feature\n```release-note\nNew feature implemented\n```", true)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -268,7 +268,7 @@ func TestProcessPR_MultipleKinds(t *testing.T) {
 		),
 	)
 	l := New(github.NewClient(httpClient), "foo", "bar", 44)
-	err := l.ProcessPR(context.Background(), "/kind feature\n/kind cleanup\n```release-note\nCleanup and feature\n```")
+	err := l.ProcessPR(context.Background(), "/kind feature\n/kind cleanup\n```release-note\nCleanup and feature\n```", true)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -320,7 +320,7 @@ func TestProcessPR_ReleaseNoteNone(t *testing.T) {
 		),
 	)
 	l := New(github.NewClient(httpClient), "foo", "bar", 46)
-	err := l.ProcessPR(context.Background(), "/kind cleanup\n```release-note\nNONE\n```")
+	err := l.ProcessPR(context.Background(), "/kind cleanup\n```release-note\nNONE\n```", true)
 	if err != nil {
 		t.Fatalf("expected no error on NONE, got %v", err)
 	}
@@ -382,7 +382,7 @@ func TestProcessPR_EditedToInvalid(t *testing.T) {
 	)
 
 	l := New(github.NewClient(httpClient), "foo", "bar", 47)
-	err := l.ProcessPR(context.Background(), "/kind fix\nNo release-note here")
+	err := l.ProcessPR(context.Background(), "/kind fix\nNo release-note here", true)
 	if err == nil || !strings.Contains(err.Error(), "missing or empty ```release-note``` block") {
 		t.Fatalf("ProcessPR error expected to contain 'missing or empty ```release-note``` block', got: %v", err.Error())
 	}
@@ -440,7 +440,7 @@ func TestProcessPR_EditedToValid(t *testing.T) {
 	)
 
 	l := New(github.NewClient(httpClient), "foo", "bar", 47)
-	err := l.ProcessPR(context.Background(), "/kind fix\\n```release-note\\nFixed it\\n```")
+	err := l.ProcessPR(context.Background(), "/kind fix\\n```release-note\\nFixed it\\n```", true)
 	if err != nil {
 		t.Fatalf("expected no error from ProcessPR, got %v", err)
 	}
@@ -532,7 +532,7 @@ func TestProcessPR_LabelMigrationTableDriven(t *testing.T) {
 			)
 
 			l := New(github.NewClient(httpClient), "owner", "repo", tc.prNum)
-			err := l.ProcessPR(context.Background(), tc.prBody)
+			err := l.ProcessPR(context.Background(), tc.prBody, true)
 			if err != nil {
 				t.Fatalf("Expected no error, but got: %v", err)
 			}
@@ -602,7 +602,7 @@ func TestProcessPR_RemovesKindInvalid_WhenValidKindProvided(t *testing.T) {
 	)
 
 	l := New(github.NewClient(httpClient), "owner", "repo", prNum)
-	err := l.ProcessPR(context.Background(), "/kind feature\\n```release-note\\nNONE\\n```")
+	err := l.ProcessPR(context.Background(), "/kind feature\\n```release-note\\nNONE\\n```", true)
 	if err != nil {
 		t.Fatalf("Expected no error, but got: %v", err)
 	}
