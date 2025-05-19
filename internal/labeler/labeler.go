@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -61,7 +63,7 @@ func New(client *github.Client, owner, repo string, prNum int) *labeler {
 }
 
 // ProcessPR processes the PR body and updates labels accordingly.
-func (l *labeler) ProcessPR(ctx context.Context, body string) error {
+func (l *labeler) ProcessPR(ctx context.Context, body string, syncLabels bool) error {
 	// fetch current labels
 	if err := l.fetchLabels(ctx); err != nil {
 		return err
@@ -76,10 +78,12 @@ func (l *labeler) ProcessPR(ctx context.Context, body string) error {
 	if err := l.processReleaseNotes(sanitizedBody); err != nil {
 		errs = append(errs, err)
 	}
-	if err := l.syncLabels(ctx); err != nil {
-		errs = append(errs, err)
+	if syncLabels {
+		if err := l.syncLabels(ctx); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	return errors.Join(errs...)
+	return joinErrs(errs...)
 }
 
 // fetchLabels fetches the current labels for the PR
@@ -127,7 +131,7 @@ func (l *labeler) verifyKinds(kinds map[string]bool) error {
 		if !l.currentMap["do-not-merge/kind-invalid"] {
 			l.labelsToAdd["do-not-merge/kind-invalid"] = true
 		}
-		return fmt.Errorf("no /kind labels found, labeling do-not-merge/kind-invalid")
+		return fmt.Errorf("no /kind labels found, labeling do-not-merge/kind-invalid. supported kinds: %v", slices.Collect(maps.Keys(supportedKinds)))
 	}
 	for k := range kinds {
 		if supportedKinds[k] {
@@ -136,7 +140,7 @@ func (l *labeler) verifyKinds(kinds map[string]bool) error {
 		if !l.currentMap["do-not-merge/kind-invalid"] {
 			l.labelsToAdd["do-not-merge/kind-invalid"] = true
 		}
-		return fmt.Errorf("invalid /kind %q detected, labeling do-not-merge/kind-invalid", k)
+		return fmt.Errorf("invalid /kind %q detected, labeling do-not-merge/kind-invalid. supported kinds: %v", k, slices.Collect(maps.Keys(supportedKinds)))
 	}
 	if l.currentMap["do-not-merge/kind-invalid"] {
 		l.labelsToRemove["do-not-merge/kind-invalid"] = true
@@ -195,7 +199,7 @@ func (l *labeler) processReleaseNotes(body string) error {
 		if l.currentMap["release-note-none"] {
 			l.labelsToRemove["release-note-none"] = true
 		}
-		return fmt.Errorf("missing or empty ```release-note``` block; please add your line or 'NONE'")
+		return fmt.Errorf("missing or empty ```release-note``` block; please add your line. If no release notes, add:\n```release-note\nNONE\n```")
 	}
 
 	// process the release note block
@@ -265,4 +269,29 @@ func (l *labeler) syncLabels(ctx context.Context) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+type joinError []error
+
+// Error implements error.
+func (j joinError) Error() string {
+	if len(j) == 0 {
+		return ""
+	}
+	if len(j) == 1 {
+		return j[0].Error()
+	}
+	var sb strings.Builder
+	for _, err := range j {
+		sb.WriteString("\n")
+		sb.WriteString("- " + err.Error())
+	}
+	return sb.String()
+}
+
+func joinErrs(errs ...error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	return joinError(errs)
 }
