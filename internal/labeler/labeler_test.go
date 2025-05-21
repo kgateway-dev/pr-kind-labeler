@@ -13,10 +13,13 @@ import (
 
 	"github.com/google/go-github/v68/github"
 	"github.com/migueleliasweb/go-github-mock/src/mock"
+
+	"github.com/kgateway-dev/pr-kind-labeler/pkg/kinds"
+	"github.com/kgateway-dev/pr-kind-labeler/pkg/labels"
 )
 
 func TestProcessPR_NoKindSupplied(t *testing.T) {
-	expectedLabelsToAdd := []string{"do-not-merge/kind-invalid", "release-note"}
+	expectedLabelsToAdd := []string{labels.InvalidKindLabel, labels.ReleaseNoteLabel}
 	sort.Strings(expectedLabelsToAdd)
 	expectedLabelsToRemove := []string{}
 
@@ -71,7 +74,7 @@ func TestProcessPR_NoKindSupplied(t *testing.T) {
 }
 
 func TestProcessPR_InvalidKind(t *testing.T) {
-	expectedLabelsToAdd := []string{"do-not-merge/kind-invalid", "release-note"}
+	expectedLabelsToAdd := []string{labels.InvalidKindLabel, labels.ReleaseNoteLabel}
 	sort.Strings(expectedLabelsToAdd)
 	expectedLabelsToRemove := []string{}
 
@@ -124,7 +127,10 @@ func TestProcessPR_InvalidKind(t *testing.T) {
 }
 
 func TestProcessPR_ValidKind_InvalidReleaseNote(t *testing.T) {
-	expectedLabelsToAdd := []string{"kind/fix", "do-not-merge/release-note-invalid"}
+	expectedLabelsToAdd := []string{
+		fmt.Sprintf("kind/%s", kinds.Fix),
+		labels.InvalidReleaseNoteLabel,
+	}
 	sort.Strings(expectedLabelsToAdd)
 	expectedLabelsToRemove := []string{}
 
@@ -177,7 +183,10 @@ func TestProcessPR_ValidKind_InvalidReleaseNote(t *testing.T) {
 }
 
 func TestProcessPR_ValidKindAndReleaseNote(t *testing.T) {
-	expectedLabelsToAdd := []string{"kind/feature", "release-note"}
+	expectedLabelsToAdd := []string{
+		fmt.Sprintf("kind/%s", kinds.Feature),
+		labels.ReleaseNoteLabel,
+	}
 	sort.Strings(expectedLabelsToAdd)
 	expectedLabelsToRemove := []string{}
 
@@ -230,7 +239,11 @@ func TestProcessPR_ValidKindAndReleaseNote(t *testing.T) {
 }
 
 func TestProcessPR_MultipleKinds(t *testing.T) {
-	expectedLabelsToAdd := []string{"kind/feature", "kind/cleanup", "release-note"}
+	expectedLabelsToAdd := []string{
+		fmt.Sprintf("kind/%s", kinds.Feature),
+		fmt.Sprintf("kind/%s", kinds.Cleanup),
+		labels.ReleaseNoteLabel,
+	}
 	sort.Strings(expectedLabelsToAdd)
 	expectedLabelsToRemove := []string{}
 
@@ -282,7 +295,10 @@ func TestProcessPR_MultipleKinds(t *testing.T) {
 }
 
 func TestProcessPR_ReleaseNoteNone(t *testing.T) {
-	expectedLabelsToAdd := []string{"kind/cleanup", "release-note-none"}
+	expectedLabelsToAdd := []string{
+		fmt.Sprintf("kind/%s", kinds.Cleanup),
+		labels.ReleaseNoteNoneLabel,
+	}
 	sort.Strings(expectedLabelsToAdd)
 	expectedLabelsToRemove := []string{}
 
@@ -334,7 +350,9 @@ func TestProcessPR_ReleaseNoteNone(t *testing.T) {
 }
 
 func TestProcessPR_EditedToInvalid(t *testing.T) {
-	expectedLabelsToAdd := []string{"do-not-merge/release-note-invalid"}
+	expectedLabelsToAdd := []string{
+		labels.InvalidReleaseNoteLabel,
+	}
 	sort.Strings(expectedLabelsToAdd)
 
 	expectedLabelsToRemove := []string{"release-note"}
@@ -347,8 +365,8 @@ func TestProcessPR_EditedToInvalid(t *testing.T) {
 		mock.WithRequestMatch(
 			mock.GetReposIssuesLabelsByOwnerByRepoByIssueNumber,
 			[]*github.Label{
-				{Name: github.Ptr("kind/fix")},
-				{Name: github.Ptr("release-note")},
+				{Name: github.Ptr(fmt.Sprintf("kind/%s", kinds.Fix))},
+				{Name: github.Ptr(labels.ReleaseNoteLabel)},
 			},
 		),
 		mock.WithRequestMatchHandler(
@@ -396,9 +414,14 @@ func TestProcessPR_EditedToInvalid(t *testing.T) {
 }
 
 func TestProcessPR_EditedToValid(t *testing.T) {
-	expectedLabelsToAdd := []string{"kind/fix", "release-note"}
+	expectedLabelsToAdd := []string{
+		fmt.Sprintf("kind/%s", kinds.Fix),
+		labels.ReleaseNoteLabel,
+	}
 	sort.Strings(expectedLabelsToAdd)
-	expectedLabelsToRemove := []string{"do-not-merge/release-note-invalid"}
+	expectedLabelsToRemove := []string{
+		labels.InvalidReleaseNoteLabel,
+	}
 	sort.Strings(expectedLabelsToRemove)
 
 	var actualLabelsAdded []string = make([]string, 0)
@@ -407,7 +430,7 @@ func TestProcessPR_EditedToValid(t *testing.T) {
 	httpClient := mock.NewMockedHTTPClient(
 		mock.WithRequestMatch(
 			mock.GetReposIssuesLabelsByOwnerByRepoByIssueNumber,
-			[]*github.Label{{Name: github.Ptr("do-not-merge/release-note-invalid")}},
+			[]*github.Label{{Name: github.Ptr(labels.InvalidReleaseNoteLabel)}},
 		),
 		mock.WithRequestMatchHandler(
 			mock.PostReposIssuesLabelsByOwnerByRepoByIssueNumber,
@@ -470,9 +493,15 @@ func TestProcessPR_LabelMigrationTableDriven(t *testing.T) {
 				{Name: github.Ptr("kind/bug_fix")},
 				{Name: github.Ptr("release-note-needed")},
 			},
-			prBody:                 "/kind fix\\n```release-note\\nValid note\\n```",
-			expectedLabelsToAdd:    []string{"kind/fix", "release-note"},
-			expectedLabelsToRemove: []string{"kind/bug_fix", "release-note-needed"},
+			prBody: "/kind fix\\n```release-note\\nValid note\\n```",
+			expectedLabelsToAdd: []string{
+				fmt.Sprintf("kind/%s", kinds.Fix),
+				labels.ReleaseNoteLabel,
+			},
+			expectedLabelsToRemove: []string{
+				fmt.Sprintf("kind/%s", kinds.DeprecatedBugFix),
+				labels.DeprecatedReleaseNoteLabel,
+			},
 		},
 		{
 			name:  "Deprecated_Feature_To_New_Feature",
@@ -553,9 +582,15 @@ func TestProcessPR_LabelMigrationTableDriven(t *testing.T) {
 func TestProcessPR_RemovesKindInvalid_WhenValidKindProvided(t *testing.T) {
 	t.Parallel()
 
-	expectedLabelsToAdd := []string{"kind/feature", "release-note"}
+	expectedLabelsToAdd := []string{
+		fmt.Sprintf("kind/%s", kinds.Feature),
+		labels.ReleaseNoteLabel,
+	}
 	sort.Strings(expectedLabelsToAdd)
-	expectedLabelsToRemove := []string{"do-not-merge/kind-invalid", "release-note-none"}
+	expectedLabelsToRemove := []string{
+		labels.InvalidKindLabel,
+		labels.ReleaseNoteNoneLabel,
+	}
 	sort.Strings(expectedLabelsToRemove)
 
 	var actualLabelsAdded []string = make([]string, 0)
@@ -566,8 +601,8 @@ func TestProcessPR_RemovesKindInvalid_WhenValidKindProvided(t *testing.T) {
 		mock.WithRequestMatch(
 			mock.GetReposIssuesLabelsByOwnerByRepoByIssueNumber,
 			[]*github.Label{
-				{Name: github.Ptr("do-not-merge/kind-invalid")},
-				{Name: github.Ptr("release-note-none")},
+				{Name: github.Ptr(labels.InvalidKindLabel)},
+				{Name: github.Ptr(labels.ReleaseNoteNoneLabel)},
 			},
 		),
 		mock.WithRequestMatchHandler(
