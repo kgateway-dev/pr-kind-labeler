@@ -507,12 +507,40 @@ func TestProcessPR_LabelMigrationTableDriven(t *testing.T) {
 			name:  "Deprecated_Feature_To_New_Feature",
 			prNum: 106,
 			initialLabels: []*github.Label{
-				{Name: github.Ptr("kind/new_feature")},
-				{Name: github.Ptr("release-note-needed")},
+				{Name: github.Ptr(fmt.Sprintf("kind/%s", kinds.DeprecatedNewFeature))},
+				{Name: github.Ptr(labels.DeprecatedReleaseNoteLabel)},
 			},
-			prBody:                 "/kind new_feature\\n```release-note\\nValid note\\n```",
-			expectedLabelsToAdd:    []string{"kind/feature", "release-note"},
-			expectedLabelsToRemove: []string{"kind/new_feature", "release-note-needed"},
+			prBody: "/kind new_feature\\n```release-note\\nValid note\\n```",
+			expectedLabelsToAdd: []string{
+				fmt.Sprintf("kind/%s", kinds.Feature),
+				labels.ReleaseNoteLabel,
+			},
+			expectedLabelsToRemove: []string{
+				fmt.Sprintf("kind/%s", kinds.DeprecatedNewFeature),
+				labels.DeprecatedReleaseNoteLabel,
+			},
+		},
+		{
+			name:          "Install_Kind_Label",
+			prNum:         107,
+			initialLabels: []*github.Label{},
+			prBody:        "/kind install\\n```release-note\\nUpdated Helm chart\\n```",
+			expectedLabelsToAdd: []string{
+				fmt.Sprintf("kind/%s", kinds.Install),
+				labels.ReleaseNoteLabel,
+			},
+			expectedLabelsToRemove: []string{},
+		},
+		{
+			name:          "Bump_Kind_Label",
+			prNum:         108,
+			initialLabels: []*github.Label{},
+			prBody:        "/kind bump\\n```release-note\\nUpdated dependencies\\n```",
+			expectedLabelsToAdd: []string{
+				fmt.Sprintf("kind/%s", kinds.Bump),
+				labels.ReleaseNoteLabel,
+			},
+			expectedLabelsToRemove: []string{},
 		},
 	}
 

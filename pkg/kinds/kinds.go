@@ -17,6 +17,10 @@ const (
 	Cleanup = "cleanup"
 	// Flake is a kind label that indicates the PR is a flake.
 	Flake = "flake"
+	// Install is a kind label that indicates the PR affects the installation of the product.
+	Install = "install"
+	// Bump is a kind label that indicates the PR is a dependency bump.
+	Bump = "bump"
 
 	// DeprecatedNewFeature is a deprecated kind label that indicates the PR is a new feature.
 	DeprecatedNewFeature = "new_feature"
@@ -34,6 +38,8 @@ var SupportedKinds = map[string]bool{
 	Documentation:  true,
 	Cleanup:        true,
 	Flake:          true,
+	Install:        true,
+	Bump:           true,
 }
 
 // DeprecatedKindMap maps old kind values to their new equivalents.
