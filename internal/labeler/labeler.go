@@ -59,6 +59,8 @@ func (l *labeler) ProcessPR(ctx context.Context, body string, syncLabels bool) e
 	if err := l.fetchLabels(ctx); err != nil {
 		return err
 	}
+	// normalize line endings to \n (GitHub returns \r\n)
+	body = strings.ReplaceAll(body, "\r\n", "\n")
 	// strip HTML comments to make the body easier to parse.
 	sanitizedBody := commentRE.ReplaceAllString(body, "")
 
