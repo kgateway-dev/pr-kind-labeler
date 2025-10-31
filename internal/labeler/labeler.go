@@ -22,29 +22,34 @@ var (
 	kindRE = regexp.MustCompile(`(?im)^/kind\s+([a-z0-9_/-]+)`)
 	// releaseNoteRE captures the first fenced code block with the word "release-note" in it.
 	releaseNoteRE = regexp.MustCompile("(?s)```release-note\\s*(.*?)\\s*```")
+	// descriptionRE captures content under the # Description heading until the next level-1 heading or end of string.
+	// Only stops at # followed by space (level-1), not ## or ### (level-2+)
+	descriptionRE = regexp.MustCompile(`(?sm)^#[ \t]*Description[ \t]*\n(.*?)(?:^#[ \t]|\z)`)
 )
 
 // labeler handles PR labeling operations.
 type labeler struct {
-	client         *github.Client
-	owner          string
-	repo           string
-	prNum          int
-	labelsToAdd    map[string]bool
-	labelsToRemove map[string]bool
-	currentMap     map[string]bool
+	client             *github.Client
+	owner              string
+	repo               string
+	prNum              int
+	labelsToAdd        map[string]bool
+	labelsToRemove     map[string]bool
+	currentMap         map[string]bool
+	enforceDescription bool
 }
 
 // New creates a new Labeler instance.
-func New(client *github.Client, owner, repo string, prNum int) *labeler {
+func New(client *github.Client, owner, repo string, prNum int, enforceDescription bool) *labeler {
 	return &labeler{
-		client:         client,
-		owner:          owner,
-		repo:           repo,
-		prNum:          prNum,
-		labelsToAdd:    map[string]bool{},
-		labelsToRemove: map[string]bool{},
-		currentMap:     map[string]bool{},
+		client:             client,
+		owner:              owner,
+		repo:               repo,
+		prNum:              prNum,
+		labelsToAdd:        map[string]bool{},
+		labelsToRemove:     map[string]bool{},
+		currentMap:         map[string]bool{},
+		enforceDescription: enforceDescription,
 	}
 }
 
@@ -54,6 +59,8 @@ func (l *labeler) ProcessPR(ctx context.Context, body string, syncLabels bool) e
 	if err := l.fetchLabels(ctx); err != nil {
 		return err
 	}
+	// normalize line endings to \n (GitHub returns \r\n)
+	body = strings.ReplaceAll(body, "\r\n", "\n")
 	// strip HTML comments to make the body easier to parse.
 	sanitizedBody := commentRE.ReplaceAllString(body, "")
 
@@ -63,6 +70,11 @@ func (l *labeler) ProcessPR(ctx context.Context, body string, syncLabels bool) e
 	}
 	if err := l.processReleaseNotes(sanitizedBody); err != nil {
 		errs = append(errs, err)
+	}
+	if l.enforceDescription {
+		if err := l.processDescription(sanitizedBody); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if syncLabels {
 		if err := l.syncLabels(ctx); err != nil {
@@ -224,6 +236,31 @@ func (l *labeler) processReleaseNotes(body string) error {
 		if l.currentMap[labels.ReleaseNoteNoneLabel] {
 			l.labelsToRemove[labels.ReleaseNoteNoneLabel] = true
 		}
+	}
+	return nil
+}
+
+// processDescription handles the description validation and labeling
+func (l *labeler) processDescription(body string) error {
+	// validate the description block is present
+	match := descriptionRE.FindStringSubmatch(body)
+	if len(match) < 2 {
+		if !l.currentMap[labels.InvalidDescriptionLabel] {
+			l.labelsToAdd[labels.InvalidDescriptionLabel] = true
+		}
+		return fmt.Errorf("missing # Description section in PR body; please add a description explaining the changes")
+	}
+	// check if the description content is meaningful (not empty or just whitespace)
+	descriptionContent := strings.TrimSpace(match[1])
+	if descriptionContent == "" {
+		if !l.currentMap[labels.InvalidDescriptionLabel] {
+			l.labelsToAdd[labels.InvalidDescriptionLabel] = true
+		}
+		return fmt.Errorf("empty # Description section in PR body; please add a meaningful description explaining the changes")
+	}
+	// description is valid, remove the invalid label if present
+	if l.currentMap[labels.InvalidDescriptionLabel] {
+		l.labelsToRemove[labels.InvalidDescriptionLabel] = true
 	}
 	return nil
 }

@@ -1,12 +1,17 @@
 name: "PR Kind Labeler"
-description: "Sync /kind commands in PR body to GitHub labels and enforce changelog notes"
+description: "Sync /kind commands in PR body to GitHub labels, enforce changelog notes, and validate descriptions"
 inputs:
   token:
     description: "GITHUB_TOKEN or a `repo` scoped Personal Access Token (PAT)"
     default: ${{ github.token }}
+    required: false
+  enforce_description:
+    description: "Enforce that the Description section in the PR body is filled out"
+    default: "true"
     required: false
 runs:
   using: "docker"
   image: "Dockerfile"
   args:
     - ${{ inputs.token }}
+    - ${{ inputs.enforce_description }}

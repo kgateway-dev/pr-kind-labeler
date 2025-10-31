@@ -5,6 +5,8 @@ const (
 	InvalidKindLabel = "do-not-merge/kind-invalid"
 	// InvalidReleaseNoteLabel is a label that indicates the release note is invalid.
 	InvalidReleaseNoteLabel = "do-not-merge/release-note-invalid"
+	// InvalidDescriptionLabel is a label that indicates the description is invalid or missing.
+	InvalidDescriptionLabel = "do-not-merge/description-invalid"
 	// ReleaseNoteLabel is a label that indicates the release note is needed.
 	ReleaseNoteLabel = "release-note"
 	// DeprecatedReleaseNoteLabel is a deprecated label that indicates the release note is needed.

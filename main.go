@@ -18,7 +18,7 @@ func main() {
 	cmd := cobra.Command{
 		Use:          "pr-kind-labeler",
 		Short:        "Sync /kind commands in PR body to GitHub labels and enforce changelog notes",
-		Args:         cobra.ExactArgs(1),
+		Args:         cobra.RangeArgs(1, 2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -28,6 +28,15 @@ func main() {
 				return fmt.Errorf("input token is not set")
 			}
 			client := github.NewClient(nil).WithAuthToken(token)
+
+			// parse enforce_description flag (defaults to true)
+			enforceDescription := true
+			if len(os.Args) > 2 {
+				enforceDescriptionStr := os.Args[2]
+				if enforceDescriptionStr == "false" {
+					enforceDescription = false
+				}
+			}
 
 			if ghprEnv := os.Getenv("GHPR"); ghprEnv != "" {
 				// You can manually test, like so:
@@ -43,7 +52,7 @@ func main() {
 				if err != nil {
 					return fmt.Errorf("invalid PR number: %w", err)
 				}
-				return manualTest(ctx, client, owner, repo, prNumInt)
+				return manualTest(ctx, client, owner, repo, prNumInt, enforceDescription)
 			}
 
 			eventPath := os.Getenv("GITHUB_EVENT_PATH")
@@ -61,7 +70,7 @@ func main() {
 			prNum := prEvent.GetNumber()
 			body := prEvent.GetPullRequest().GetBody()
 
-			l := labeler.New(client, owner, repo, prNum)
+			l := labeler.New(client, owner, repo, prNum, enforceDescription)
 			if err := l.ProcessPR(ctx, body, true); err != nil {
 				return err
 			}
@@ -74,7 +83,7 @@ func main() {
 	}
 }
 
-func manualTest(ctx context.Context, client *github.Client, owner, repo string, prNum int) error {
+func manualTest(ctx context.Context, client *github.Client, owner, repo string, prNum int, enforceDescription bool) error {
 
 	prResp, _, err := client.PullRequests.Get(ctx, owner, repo, prNum)
 	if err != nil {
@@ -82,6 +91,6 @@ func manualTest(ctx context.Context, client *github.Client, owner, repo string, 
 	}
 	body := prResp.GetBody()
 
-	l := labeler.New(client, owner, repo, prNum)
+	l := labeler.New(client, owner, repo, prNum, enforceDescription)
 	return l.ProcessPR(ctx, body, false)
 }
