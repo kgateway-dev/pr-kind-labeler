@@ -5,8 +5,13 @@ inputs:
     description: "GITHUB_TOKEN or a `repo` scoped Personal Access Token (PAT)"
     default: ${{ github.token }}
     required: false
+  enforce_description:
+    description: "Enforce that the Description section in the PR body is filled out"
+    default: "true"
+    required: false
 runs:
   using: "docker"
   image: "Dockerfile"
   args:
     - ${{ inputs.token }}
+    - ${{ inputs.enforce_description }}
