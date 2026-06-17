@@ -776,6 +776,17 @@ func TestProcessPR_LabelMigrationTableDriven(t *testing.T) {
 			},
 			expectedLabelsToRemove: []string{},
 		},
+		{
+			name:          "Test_Kind_Label",
+			prNum:         109,
+			initialLabels: []*github.Label{},
+			prBody:        "/kind test\\n```release-note\\nAdded unit tests\\n```",
+			expectedLabelsToAdd: []string{
+				fmt.Sprintf("kind/%s", kinds.Test),
+				labels.ReleaseNoteLabel,
+			},
+			expectedLabelsToRemove: []string{},
+		},
 	}
 
 	for _, tc := range tt {

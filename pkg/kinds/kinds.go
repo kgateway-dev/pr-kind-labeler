@@ -21,6 +21,8 @@ const (
 	Install = "install"
 	// Bump is a kind label that indicates the PR is a dependency bump.
 	Bump = "bump"
+	// Test is a kind label that indicates the PR is a test.
+	Test = "test"
 
 	// DeprecatedNewFeature is a deprecated kind label that indicates the PR is a new feature.
 	DeprecatedNewFeature = "new_feature"
@@ -40,6 +42,7 @@ var SupportedKinds = map[string]bool{
 	Flake:          true,
 	Install:        true,
 	Bump:           true,
+	Test:           true,
 }
 
 // DeprecatedKindMap maps old kind values to their new equivalents.
