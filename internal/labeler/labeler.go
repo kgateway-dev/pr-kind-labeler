@@ -25,31 +25,62 @@ var (
 	// descriptionRE captures content under the # Description heading until the next level-1 heading or end of string.
 	// Only stops at # followed by space (level-1), not ## or ### (level-2+)
 	descriptionRE = regexp.MustCompile(`(?sm)^#[ \t]*Description[ \t]*\n(.*?)(?:^#[ \t]|\z)`)
+
+	conventionalCommitPrefixRE = regexp.MustCompile(`(?i)^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]+\))?!?:\s*`)
+	breakingChangePrefixRE     = regexp.MustCompile(`(?i)^BREAKING( CHANGE)?:\s*`)
+	markdownBulletRE           = regexp.MustCompile(`(?m)^[ \t]*(?:[-*+][ \t]+|[0-9]+[.)][ \t]+)`)
+	markdownHeadingRE          = regexp.MustCompile(`(?m)^[ \t]*#{1,6}[ \t]+`)
+	fencedCodeBlockRE          = regexp.MustCompile("(?m)^[ \t]*(?:```|~~~)")
+	thisPRRE                   = regexp.MustCompile(`(?i)\bthis[ \t]+pr\b`)
 )
+
+const maxReleaseNoteLength = 500
+
+var changelogKinds = map[string]bool{
+	kinds.BreakingChange: true,
+	kinds.Feature:        true,
+	kinds.Fix:            true,
+	kinds.Deprecation:    true,
+	kinds.Install:        true,
+	kinds.Documentation:  true,
+	kinds.Bump:           true,
+}
 
 // labeler handles PR labeling operations.
 type labeler struct {
-	client             *github.Client
-	owner              string
-	repo               string
-	prNum              int
-	labelsToAdd        map[string]bool
-	labelsToRemove     map[string]bool
-	currentMap         map[string]bool
-	enforceDescription bool
+	client                          *github.Client
+	owner                           string
+	repo                            string
+	prNum                           int
+	labelsToAdd                     map[string]bool
+	labelsToRemove                  map[string]bool
+	currentMap                      map[string]bool
+	enforceDescription              bool
+	enforceReleaseNoteQuality       bool
+	enforceChangelogKindExclusivity bool
 }
 
 // New creates a new Labeler instance.
-func New(client *github.Client, owner, repo string, prNum int, enforceDescription bool) *labeler {
+func New(client *github.Client, owner, repo string, prNum int, enforceDescription bool, validationFlags ...bool) *labeler {
+	enforceReleaseNoteQuality := false
+	if len(validationFlags) > 0 {
+		enforceReleaseNoteQuality = validationFlags[0]
+	}
+	enforceChangelogKindExclusivity := false
+	if len(validationFlags) > 1 {
+		enforceChangelogKindExclusivity = validationFlags[1]
+	}
 	return &labeler{
-		client:             client,
-		owner:              owner,
-		repo:               repo,
-		prNum:              prNum,
-		labelsToAdd:        map[string]bool{},
-		labelsToRemove:     map[string]bool{},
-		currentMap:         map[string]bool{},
-		enforceDescription: enforceDescription,
+		client:                          client,
+		owner:                           owner,
+		repo:                            repo,
+		prNum:                           prNum,
+		labelsToAdd:                     map[string]bool{},
+		labelsToRemove:                  map[string]bool{},
+		currentMap:                      map[string]bool{},
+		enforceDescription:              enforceDescription,
+		enforceReleaseNoteQuality:       enforceReleaseNoteQuality,
+		enforceChangelogKindExclusivity: enforceChangelogKindExclusivity,
 	}
 }
 
@@ -140,10 +171,32 @@ func (l *labeler) verifyKinds(extractedKinds map[string]bool) error {
 		}
 		return fmt.Errorf("invalid /kind %q detected, labeling %q. supported kinds: %v", k, labels.InvalidKindLabel, slices.Collect(maps.Keys(kinds.SupportedKinds)))
 	}
+	if l.enforceChangelogKindExclusivity {
+		if invalidKinds := invalidChangelogKindCombination(extractedKinds); len(invalidKinds) > 0 {
+			if !l.currentMap[labels.InvalidKindLabel] {
+				l.labelsToAdd[labels.InvalidKindLabel] = true
+			}
+			return fmt.Errorf("multiple changelog /kind labels detected: %v. Choose exactly one changelog kind per PR so the generated changelog has one category. Changelog kinds are: %v", invalidKinds, slices.Collect(maps.Keys(changelogKinds)))
+		}
+	}
 	if l.currentMap[labels.InvalidKindLabel] {
 		l.labelsToRemove[labels.InvalidKindLabel] = true
 	}
 	return nil
+}
+
+func invalidChangelogKindCombination(extractedKinds map[string]bool) []string {
+	var found []string
+	for k := range extractedKinds {
+		if changelogKinds[k] {
+			found = append(found, k)
+		}
+	}
+	sort.Strings(found)
+	if len(found) <= 1 {
+		return nil
+	}
+	return found
 }
 
 // syncKindLabels synchronizes the PR labels with the extracted kinds
@@ -204,15 +257,7 @@ func (l *labeler) processReleaseNotes(body string) error {
 	entry := strings.TrimSpace(match[1])
 	switch {
 	case entry == "":
-		if !l.currentMap[labels.InvalidReleaseNoteLabel] {
-			l.labelsToAdd[labels.InvalidReleaseNoteLabel] = true
-		}
-		if l.currentMap[labels.ReleaseNoteLabel] {
-			l.labelsToRemove[labels.ReleaseNoteLabel] = true
-		}
-		if l.currentMap[labels.ReleaseNoteNoneLabel] {
-			l.labelsToRemove[labels.ReleaseNoteNoneLabel] = true
-		}
+		l.markInvalidReleaseNote()
 		return fmt.Errorf("missing or empty ```release-note``` block; please add your line or 'NONE'")
 	case strings.EqualFold(entry, "NONE"):
 		// handle special NONE case
@@ -226,6 +271,12 @@ func (l *labeler) processReleaseNotes(body string) error {
 			l.labelsToRemove[labels.ReleaseNoteLabel] = true
 		}
 	default:
+		if l.enforceReleaseNoteQuality {
+			if err := validateReleaseNote(entry); err != nil {
+				l.markInvalidReleaseNote()
+				return err
+			}
+		}
 		// validate release note was found
 		if !l.currentMap[labels.ReleaseNoteLabel] {
 			l.labelsToAdd[labels.ReleaseNoteLabel] = true
@@ -238,6 +289,56 @@ func (l *labeler) processReleaseNotes(body string) error {
 		}
 	}
 	return nil
+}
+
+func (l *labeler) markInvalidReleaseNote() {
+	if !l.currentMap[labels.InvalidReleaseNoteLabel] {
+		l.labelsToAdd[labels.InvalidReleaseNoteLabel] = true
+	}
+	if l.currentMap[labels.ReleaseNoteLabel] {
+		l.labelsToRemove[labels.ReleaseNoteLabel] = true
+	}
+	if l.currentMap[labels.ReleaseNoteNoneLabel] {
+		l.labelsToRemove[labels.ReleaseNoteNoneLabel] = true
+	}
+}
+
+func validateReleaseNote(entry string) error {
+	var reasons []string
+	if len(entry) > maxReleaseNoteLength {
+		reasons = append(reasons, fmt.Sprintf("must be %d characters or fewer", maxReleaseNoteLength))
+	}
+	for _, r := range entry {
+		if r > 127 {
+			reasons = append(reasons, "must use ASCII characters only")
+			break
+		}
+	}
+	if strings.Contains(entry, "\n") {
+		reasons = append(reasons, "must be one plain sentence without blank lines or multiple paragraphs")
+	}
+	if markdownBulletRE.MatchString(entry) {
+		reasons = append(reasons, "must not use markdown bullets")
+	}
+	if markdownHeadingRE.MatchString(entry) {
+		reasons = append(reasons, "must not use markdown headings")
+	}
+	if fencedCodeBlockRE.MatchString(entry) {
+		reasons = append(reasons, "must not include fenced code blocks")
+	}
+	if conventionalCommitPrefixRE.MatchString(entry) {
+		reasons = append(reasons, "must not start with a conventional commit prefix like fix: or feat(helm)!:")
+	}
+	if breakingChangePrefixRE.MatchString(entry) {
+		reasons = append(reasons, "must not start with a BREAKING or BREAKING CHANGE prefix")
+	}
+	if thisPRRE.MatchString(entry) {
+		reasons = append(reasons, "must describe the user-facing change, not refer to this PR")
+	}
+	if len(reasons) == 0 {
+		return nil
+	}
+	return fmt.Errorf("invalid release note: %s. Release notes are copied verbatim into public changelogs; write one plain, user-facing sentence or use 'NONE'", strings.Join(reasons, "; "))
 }
 
 // processDescription handles the description validation and labeling
