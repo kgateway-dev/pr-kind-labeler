@@ -9,9 +9,19 @@ inputs:
     description: "Enforce that the Description section in the PR body is filled out"
     default: "true"
     required: false
+  enforce_release_note_quality:
+    description: "Enforce naive publication-ready release note checks"
+    default: "false"
+    required: false
+  enforce_changelog_kind_exclusivity:
+    description: "Enforce at most one changelog kind per PR"
+    default: "false"
+    required: false
 runs:
   using: "docker"
   image: "Dockerfile"
   args:
     - ${{ inputs.token }}
     - ${{ inputs.enforce_description }}
+    - ${{ inputs.enforce_release_note_quality }}
+    - ${{ inputs.enforce_changelog_kind_exclusivity }}

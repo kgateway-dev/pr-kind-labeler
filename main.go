@@ -18,7 +18,7 @@ func main() {
 	cmd := cobra.Command{
 		Use:          "pr-kind-labeler",
 		Short:        "Sync /kind commands in PR body to GitHub labels and enforce changelog notes",
-		Args:         cobra.RangeArgs(1, 2),
+		Args:         cobra.RangeArgs(1, 4),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -38,6 +38,24 @@ func main() {
 				}
 			}
 
+			// parse enforce_release_note_quality flag (defaults to false)
+			enforceReleaseNoteQuality := false
+			if len(os.Args) > 3 {
+				enforceReleaseNoteQualityStr := os.Args[3]
+				if enforceReleaseNoteQualityStr == "true" {
+					enforceReleaseNoteQuality = true
+				}
+			}
+
+			// parse enforce_changelog_kind_exclusivity flag (defaults to false)
+			enforceChangelogKindExclusivity := false
+			if len(os.Args) > 4 {
+				enforceChangelogKindExclusivityStr := os.Args[4]
+				if enforceChangelogKindExclusivityStr == "true" {
+					enforceChangelogKindExclusivity = true
+				}
+			}
+
 			if ghprEnv := os.Getenv("GHPR"); ghprEnv != "" {
 				// You can manually test, like so:
 				// GHPR=kgateway-dev/kgateway/11221 go run . $GITHUB_API_TOKEN
@@ -52,7 +70,7 @@ func main() {
 				if err != nil {
 					return fmt.Errorf("invalid PR number: %w", err)
 				}
-				return manualTest(ctx, client, owner, repo, prNumInt, enforceDescription)
+				return manualTest(ctx, client, owner, repo, prNumInt, enforceDescription, enforceReleaseNoteQuality, enforceChangelogKindExclusivity)
 			}
 
 			eventPath := os.Getenv("GITHUB_EVENT_PATH")
@@ -70,7 +88,7 @@ func main() {
 			prNum := prEvent.GetNumber()
 			body := prEvent.GetPullRequest().GetBody()
 
-			l := labeler.New(client, owner, repo, prNum, enforceDescription)
+			l := labeler.New(client, owner, repo, prNum, enforceDescription, enforceReleaseNoteQuality, enforceChangelogKindExclusivity)
 			if err := l.ProcessPR(ctx, body, true); err != nil {
 				return err
 			}
@@ -83,7 +101,7 @@ func main() {
 	}
 }
 
-func manualTest(ctx context.Context, client *github.Client, owner, repo string, prNum int, enforceDescription bool) error {
+func manualTest(ctx context.Context, client *github.Client, owner, repo string, prNum int, enforceDescription bool, enforceReleaseNoteQuality bool, enforceChangelogKindExclusivity bool) error {
 
 	prResp, _, err := client.PullRequests.Get(ctx, owner, repo, prNum)
 	if err != nil {
@@ -91,6 +109,6 @@ func manualTest(ctx context.Context, client *github.Client, owner, repo string, 
 	}
 	body := prResp.GetBody()
 
-	l := labeler.New(client, owner, repo, prNum, enforceDescription)
+	l := labeler.New(client, owner, repo, prNum, enforceDescription, enforceReleaseNoteQuality, enforceChangelogKindExclusivity)
 	return l.ProcessPR(ctx, body, false)
 }

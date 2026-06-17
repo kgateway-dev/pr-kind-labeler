@@ -349,6 +349,240 @@ func TestProcessPR_ReleaseNoteNone(t *testing.T) {
 	}
 }
 
+func TestValidateReleaseNoteQuality(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		entry     string
+		wantError string
+	}{
+		{
+			name:  "valid plain release note",
+			entry: "Fixed route status updates when backend services are recreated.",
+		},
+		{
+			name:      "fix prefix rejected",
+			entry:     "fix: update route status.",
+			wantError: "conventional commit prefix",
+		},
+		{
+			name:      "scoped breaking conventional prefix rejected",
+			entry:     "feat(helm)!: add listener policy support.",
+			wantError: "conventional commit prefix",
+		},
+		{
+			name:      "breaking change prefix rejected",
+			entry:     "BREAKING CHANGE: Route policy defaults now require explicit backend refs.",
+			wantError: "BREAKING",
+		},
+		{
+			name:      "emoji rejected",
+			entry:     "Added listener policy support 🚀",
+			wantError: "ASCII",
+		},
+		{
+			name:      "bullet list rejected",
+			entry:     "- Added listener policy support.",
+			wantError: "markdown bullets",
+		},
+		{
+			name:      "heading rejected",
+			entry:     "## Added listener policy support.",
+			wantError: "markdown headings",
+		},
+		{
+			name:      "fenced code block rejected",
+			entry:     "```go\nfmt.Println(\"listener policy\")\n```",
+			wantError: "fenced code blocks",
+		},
+		{
+			name:      "blank line rejected",
+			entry:     "Added listener policy support.\n\nUpdated Helm values.",
+			wantError: "blank lines",
+		},
+		{
+			name:      "this PR rejected",
+			entry:     "This PR adds listener policy support.",
+			wantError: "this PR",
+		},
+		{
+			name:      "max length rejected",
+			entry:     strings.Repeat("a", maxReleaseNoteLength+1),
+			wantError: "characters or fewer",
+		},
+		{
+			name:  "NONE is handled before quality validation",
+			entry: "NONE",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateReleaseNote(tc.entry)
+			if tc.wantError == "" {
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("expected error containing %q, got %v", tc.wantError, err)
+			}
+			if !strings.Contains(err.Error(), "copied verbatim into public changelogs") {
+				t.Fatalf("expected public changelog guidance, got %v", err)
+			}
+		})
+	}
+}
+
+func TestInvalidReleaseNoteQualityLabelsPR(t *testing.T) {
+	expectedLabelsToAdd := []string{
+		labels.InvalidReleaseNoteLabel,
+	}
+	sort.Strings(expectedLabelsToAdd)
+	expectedLabelsToRemove := []string{
+		labels.ReleaseNoteLabel,
+		labels.ReleaseNoteNoneLabel,
+	}
+	sort.Strings(expectedLabelsToRemove)
+
+	actualLabelsAdded, actualLabelsRemoved, err := processPRForTest(t,
+		[]*github.Label{
+			{Name: github.Ptr(fmt.Sprintf("kind/%s", kinds.Fix))},
+			{Name: github.Ptr(labels.ReleaseNoteLabel)},
+			{Name: github.Ptr(labels.ReleaseNoteNoneLabel)},
+		},
+		"/kind fix\n```release-note\nfix: repaired route status updates.\n```",
+		true,
+	)
+	if err == nil || !strings.Contains(err.Error(), "copied verbatim into public changelogs") {
+		t.Fatalf("expected release-note quality error, got %v", err)
+	}
+	if !reflect.DeepEqual(actualLabelsAdded, expectedLabelsToAdd) {
+		t.Fatalf("Expected labels to be added %v, got %v", expectedLabelsToAdd, actualLabelsAdded)
+	}
+	sort.Strings(actualLabelsRemoved)
+	if !reflect.DeepEqual(actualLabelsRemoved, expectedLabelsToRemove) {
+		t.Fatalf("Expected labels to be removed %v, got %v", expectedLabelsToRemove, actualLabelsRemoved)
+	}
+}
+
+func TestInvalidChangelogKindCombinations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		body      string
+		wantAdd   []string
+		wantError string
+	}{
+		{
+			name:      "multiple changelog kinds rejected",
+			body:      "/kind feature\n/kind fix\n```release-note\nImproved route status updates.\n```",
+			wantAdd:   []string{labels.InvalidKindLabel, labels.ReleaseNoteLabel},
+			wantError: "multiple changelog /kind labels",
+		},
+		{
+			name:      "breaking change plus fix rejected",
+			body:      "/kind breaking_change\n/kind fix\n```release-note\nChanged route policy defaults.\n```",
+			wantAdd:   []string{labels.InvalidKindLabel, labels.ReleaseNoteLabel},
+			wantError: "multiple changelog /kind labels",
+		},
+		{
+			name:    "cleanup plus flake with NONE accepted",
+			body:    "/kind cleanup\n/kind flake\n```release-note\nNONE\n```",
+			wantAdd: []string{fmt.Sprintf("kind/%s", kinds.Cleanup), fmt.Sprintf("kind/%s", kinds.Flake), labels.ReleaseNoteNoneLabel},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			actualLabelsAdded, _, err := processPRForTest(t, []*github.Label{}, tc.body, false, true)
+			if tc.wantError == "" {
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("expected error containing %q, got %v", tc.wantError, err)
+			}
+			sort.Strings(tc.wantAdd)
+			if !reflect.DeepEqual(actualLabelsAdded, tc.wantAdd) {
+				t.Fatalf("Expected labels to be added %v, got %v", tc.wantAdd, actualLabelsAdded)
+			}
+		})
+	}
+}
+
+func TestStrictChangelogValidationDefaultsOff(t *testing.T) {
+	expectedLabelsToAdd := []string{
+		fmt.Sprintf("kind/%s", kinds.Feature),
+		fmt.Sprintf("kind/%s", kinds.Fix),
+		labels.ReleaseNoteLabel,
+	}
+	sort.Strings(expectedLabelsToAdd)
+
+	actualLabelsAdded, _, err := processPRForTest(t,
+		[]*github.Label{},
+		"/kind feature\n/kind fix\n```release-note\nfix: repaired route status updates.\n```",
+	)
+	if err != nil {
+		t.Fatalf("expected no error when strict changelog validation is not enabled, got %v", err)
+	}
+	if !reflect.DeepEqual(actualLabelsAdded, expectedLabelsToAdd) {
+		t.Fatalf("Expected labels to be added %v, got %v", expectedLabelsToAdd, actualLabelsAdded)
+	}
+}
+
+func TestReleaseNoteQualityFlagDoesNotEnforceKindExclusivity(t *testing.T) {
+	expectedLabelsToAdd := []string{
+		fmt.Sprintf("kind/%s", kinds.Feature),
+		fmt.Sprintf("kind/%s", kinds.Fix),
+		labels.ReleaseNoteLabel,
+	}
+	sort.Strings(expectedLabelsToAdd)
+
+	actualLabelsAdded, _, err := processPRForTest(t,
+		[]*github.Label{},
+		"/kind feature\n/kind fix\n```release-note\nImproved route status updates.\n```",
+		true,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("expected no error when only release note quality validation is enabled, got %v", err)
+	}
+	if !reflect.DeepEqual(actualLabelsAdded, expectedLabelsToAdd) {
+		t.Fatalf("Expected labels to be added %v, got %v", expectedLabelsToAdd, actualLabelsAdded)
+	}
+}
+
+func TestKindExclusivityFlagDoesNotEnforceReleaseNoteQuality(t *testing.T) {
+	expectedLabelsToAdd := []string{
+		fmt.Sprintf("kind/%s", kinds.Fix),
+		labels.ReleaseNoteLabel,
+	}
+	sort.Strings(expectedLabelsToAdd)
+
+	actualLabelsAdded, _, err := processPRForTest(t,
+		[]*github.Label{},
+		"/kind fix\n```release-note\nfix: repaired route status updates.\n```",
+		false,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("expected no error when only changelog kind exclusivity is enabled, got %v", err)
+	}
+	if !reflect.DeepEqual(actualLabelsAdded, expectedLabelsToAdd) {
+		t.Fatalf("Expected labels to be added %v, got %v", expectedLabelsToAdd, actualLabelsAdded)
+	}
+}
+
 func TestProcessPR_EditedToInvalid(t *testing.T) {
 	expectedLabelsToAdd := []string{
 		labels.InvalidReleaseNoteLabel,
@@ -1033,4 +1267,60 @@ func TestProcessPR_ValidDescriptionWithSubheadings(t *testing.T) {
 	if !reflect.DeepEqual(actualLabelsRemoved, expectedLabelsToRemove) {
 		t.Fatalf("Expected labels to be removed %v, got %v", expectedLabelsToRemove, actualLabelsRemoved)
 	}
+}
+
+func processPRForTest(t *testing.T, initialLabels []*github.Label, prBody string, validationFlags ...bool) ([]string, []string, error) {
+	t.Helper()
+
+	var actualLabelsAdded []string = make([]string, 0)
+	var actualLabelsRemoved []string = make([]string, 0)
+	const prNum = 900
+	enforceReleaseNoteQuality := false
+	if len(validationFlags) > 0 {
+		enforceReleaseNoteQuality = validationFlags[0]
+	}
+	enforceChangelogKindExclusivity := false
+	if len(validationFlags) > 1 {
+		enforceChangelogKindExclusivity = validationFlags[1]
+	}
+
+	httpClient := mock.NewMockedHTTPClient(
+		mock.WithRequestMatch(
+			mock.GetReposIssuesLabelsByOwnerByRepoByIssueNumber,
+			initialLabels,
+		),
+		mock.WithRequestMatchHandler(
+			mock.PostReposIssuesLabelsByOwnerByRepoByIssueNumber,
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&actualLabelsAdded); err != nil {
+					t.Fatalf("AddLabels Handler: failed to decode body: %v", err)
+				}
+				sort.Strings(actualLabelsAdded)
+				responseLabels := make([]*github.Label, len(actualLabelsAdded))
+				for i, name := range actualLabelsAdded {
+					responseLabels[i] = &github.Label{Name: github.Ptr(name)}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(responseLabels)
+			}),
+		),
+		mock.WithRequestMatchHandler(
+			mock.DeleteReposIssuesLabelsByOwnerByRepoByIssueNumberByName,
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				pathPrefix := fmt.Sprintf("/repos/%s/%s/issues/%d/labels/", "owner", "repo", prNum)
+				labelNameSegment := strings.TrimPrefix(r.URL.Path, pathPrefix)
+				decodedLabelName, err := url.PathUnescape(labelNameSegment)
+				if err != nil {
+					t.Fatalf("Failed to unescape label name segment '%s': %v", labelNameSegment, err)
+				}
+				actualLabelsRemoved = append(actualLabelsRemoved, decodedLabelName)
+				sort.Strings(actualLabelsRemoved)
+				w.WriteHeader(http.StatusNoContent)
+			}),
+		),
+	)
+
+	l := New(github.NewClient(httpClient), "owner", "repo", prNum, false, enforceReleaseNoteQuality, enforceChangelogKindExclusivity)
+	err := l.ProcessPR(context.Background(), prBody, true)
+	return actualLabelsAdded, actualLabelsRemoved, err
 }
