@@ -497,6 +497,11 @@ func TestInvalidChangelogKindCombinations(t *testing.T) {
 			body:    "/kind cleanup\n/kind flake\n```release-note\nNONE\n```",
 			wantAdd: []string{fmt.Sprintf("kind/%s", kinds.Cleanup), fmt.Sprintf("kind/%s", kinds.Flake), labels.ReleaseNoteNoneLabel},
 		},
+		{
+			name:    "test with NONE accepted",
+			body:    "/kind test\n```release-note\nNONE\n```",
+			wantAdd: []string{fmt.Sprintf("kind/%s", kinds.Test), labels.ReleaseNoteNoneLabel},
+		},
 	}
 
 	for _, tc := range tests {
